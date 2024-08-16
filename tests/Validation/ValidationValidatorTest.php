@@ -23,6 +23,7 @@ use Illuminate\Support\Stringable;
 use Illuminate\Translation\ArrayLoader;
 use Illuminate\Translation\Translator;
 use Illuminate\Validation\DatabasePresenceVerifierInterface;
+use Illuminate\Validation\Rule as ValidationRule;
 use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\Rules\ProhibitedIf;
 use Illuminate\Validation\Rules\Unique;
@@ -188,12 +189,18 @@ class ValidationValidatorTest extends TestCase
         $v->validated();
     }
 
-    public function testValidatedDoesntThrowOnPass()
+    public function testValidatedDoesntThrowOnPass(): void
     {
         $trans = $this->getIlluminateArrayTranslator();
-        $v = new Validator($trans, ['foo' => 'bar'], ['foo' => 'required']);
 
+        $v = new Validator($trans, ['foo' => 'bar'], ['foo' => 'required']);
         $this->assertSame(['foo' => 'bar'], $v->validated());
+
+        $v = new Validator($trans, [], []);
+        $this->assertSame([], $v->validated());
+
+        $v = new Validator($trans, ['foo' => 'bar', 'baz' => 'qux'], ['foo' => 'required', 'baz' => 'required']);
+        $this->assertSame(['foo' => 'bar', 'baz' => 'qux'], $v->validated());
     }
 
     public function testHasFailedValidationRules()
@@ -202,6 +209,10 @@ class ValidationValidatorTest extends TestCase
         $v = new Validator($trans, ['foo' => 'bar', 'baz' => 'boom'], ['foo' => 'Same:baz']);
         $this->assertFalse($v->passes());
         $this->assertEquals(['foo' => ['Same' => ['baz']]], $v->failed());
+
+        $v = new Validator($trans, ['foo' => 'bar', 'baz' => 'bar'], ['foo' => 'Same:baz', 'baz' => 'Required']);
+        $this->assertTrue($v->passes());
+        $this->assertEmpty($v->failed());
     }
 
     public function testFailingOnce()
@@ -274,6 +285,15 @@ class ValidationValidatorTest extends TestCase
         $trans = $this->getIlluminateArrayTranslator();
 
         $v = new Validator($trans, ['x' => ''], ['x' => 'size:10|array|integer|min:5']);
+        $this->assertTrue($v->passes());
+
+        $v = new Validator($trans, ['x' => ''], ['x' => 'array']);
+        $this->assertTrue($v->passes());
+
+        $v = new Validator($trans, ['x' => ''], ['x' => 'integer']);
+        $this->assertTrue($v->passes());
+
+        $v = new Validator($trans, ['x' => ''], ['x' => 'min:5']);
         $this->assertTrue($v->passes());
     }
 
@@ -537,6 +557,53 @@ class ValidationValidatorTest extends TestCase
         $v = new Validator($trans, ['names' => [null, 'name']], ['names.*' => 'Required']);
         $v->messages()->setFormat(':message');
         $this->assertSame('First name is required!', $v->messages()->first('names.0'));
+    }
+
+    public function testInlineAttributeNamesAreReplacedInArraysFromNestedRules()
+    {
+        $trans = $this->getIlluminateArrayTranslator();
+        $trans->addLines(['validation.required' => ':attribute is required!'], 'en');
+        $v = new Validator($trans, [
+            'users' => [['name' => 'Taylor']],
+        ], [
+            'users.*' => ValidationRule::forEach(fn () => ['id' => 'required']),
+        ], [], [
+            'users.*.id' => 'User ID',
+        ]);
+        $this->assertFalse($v->passes());
+        $v->messages()->setFormat(':message');
+        $this->assertSame('User ID is required!', $v->messages()->first('users.0.id'));
+    }
+
+    public function testTranslatedAttributeNamesAreReplacedInArraysFromNestedRules()
+    {
+        $trans = $this->getIlluminateArrayTranslator();
+        $trans->addLines([
+            'validation.required' => ':attribute is required!',
+            'validation.attributes' => ['users.*.id' => 'User ID'],
+        ], 'en');
+        $v = new Validator($trans, [
+            'users' => [['name' => 'Taylor']],
+        ], [
+            'users.*' => ValidationRule::forEach(fn () => ['id' => 'required']),
+        ]);
+        $this->assertFalse($v->passes());
+        $v->messages()->setFormat(':message');
+        $this->assertSame('User ID is required!', $v->messages()->first('users.0.id'));
+    }
+
+    public function testTranslatedAttributesCanBeMissing()
+    {
+        $trans = $this->getIlluminateArrayTranslator();
+        $trans->addLines(['validation.gt.numeric' => ':attribute must be greater than :value.'], 'en');
+        $trans->addLines(['validation.attributes' => []], 'en');
+        $v = new Validator($trans, ['total' => 0], ['total' => 'gt:0']);
+        $this->assertSame('total must be greater than 0.', $v->messages()->first('total'));
+
+        $trans = $this->getIlluminateArrayTranslator();
+        $trans->addLines(['validation.gt.numeric' => ':attribute must be greater than :value.'], 'en');
+        $v = new Validator($trans, ['total' => 0], ['total' => 'gt:0']);
+        $this->assertSame('total must be greater than 0.', $v->messages()->first('total'));
     }
 
     public function testInputIsReplaced()
@@ -2447,6 +2514,22 @@ class ValidationValidatorTest extends TestCase
         $this->assertSame('The foo field must be accepted when bar is true.', $v->messages()->first('foo'));
     }
 
+    public function testValidateRequiredIfDeclined()
+    {
+        $trans = $this->getIlluminateArrayTranslator();
+        $v = new Validator($trans, ['foo' => 'yes', 'bar' => 'baz'], ['bar' => 'required_if_declined:foo']);
+        $this->assertTrue($v->passes());
+
+        $v = new Validator($trans, ['foo' => 'no', 'bar' => 'baz'], ['bar' => 'required_if_declined:foo']);
+        $this->assertTrue($v->passes());
+
+        $v = new Validator($trans, ['foo' => 'yes', 'bar' => ''], ['bar' => 'required_if_declined:foo']);
+        $this->assertTrue($v->passes());
+
+        $v = new Validator($trans, ['foo' => 'no', 'bar' => ''], ['bar' => 'required_if_declined:foo']);
+        $this->assertFalse($v->passes());
+    }
+
     public function testValidateDeclined()
     {
         $trans = $this->getIlluminateArrayTranslator();
@@ -3754,6 +3837,29 @@ class ValidationValidatorTest extends TestCase
         $this->assertEquals(2, $v->messages()->first('items'));
     }
 
+    public function testValidateContains()
+    {
+        $trans = $this->getIlluminateArrayTranslator();
+
+        $v = new Validator($trans, ['name' => 0], ['name' => 'contains:bar']);
+        $this->assertFalse($v->passes());
+
+        $v = new Validator($trans, ['name' => ['foo', 'bar']], ['name' => 'contains:baz']);
+        $this->assertFalse($v->passes());
+
+        $v = new Validator($trans, ['name' => ['foo', 'bar']], ['name' => 'contains:baz,buzz']);
+        $this->assertFalse($v->passes());
+
+        $v = new Validator($trans, ['name' => ['foo', 'bar']], ['name' => 'contains:foo,buzz']);
+        $this->assertFalse($v->passes());
+
+        $v = new Validator($trans, ['name' => ['foo', 'bar']], ['name' => 'contains:foo']);
+        $this->assertTrue($v->passes());
+
+        $v = new Validator($trans, ['name' => ['foo', 'bar']], ['name' => 'contains:foo,bar']);
+        $this->assertTrue($v->passes());
+    }
+
     public function testValidateIn()
     {
         $trans = $this->getIlluminateArrayTranslator();
@@ -4887,6 +4993,13 @@ class ValidationValidatorTest extends TestCase
         // Ensure validation doesn't erroneously fail when ratio doesn't matches
         $v = new Validator($trans, ['x' => $uploadedFile], ['x' => 'dimensions:ratio=1']);
         $this->assertFalse($v->passes());
+
+        // Knowing that demo image5.png has width = 1366 and height = 768
+        $uploadedFile = new UploadedFile(__DIR__.'/fixtures/image5.png', '', null, null, true);
+        $trans = $this->getIlluminateArrayTranslator();
+
+        $v = new Validator($trans, ['x' => $uploadedFile], ['x' => 'dimensions:ratio=16/9']);
+        $this->assertTrue($v->passes());
     }
 
     public function testValidateMimetypes()

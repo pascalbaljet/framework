@@ -206,6 +206,20 @@ class HttpClientTest extends TestCase
         $this->assertFalse($response->conflict());
     }
 
+    public function testUnprocessableContentRequest()
+    {
+        $this->factory->fake([
+            'vapor.laravel.com' => $this->factory::response('', HttpResponse::HTTP_UNPROCESSABLE_ENTITY),
+            'forge.laravel.com' => $this->factory::response('', HttpResponse::HTTP_OK),
+        ]);
+
+        $response = $this->factory->post('http://vapor.laravel.com');
+        $this->assertTrue($response->unprocessableContent());
+
+        $response = $this->factory->post('http://forge.laravel.com');
+        $this->assertFalse($response->unprocessableContent());
+    }
+
     public function testUnprocessableEntityRequest()
     {
         $this->factory->fake([
@@ -3024,6 +3038,13 @@ class HttpClientTest extends TestCase
         $this->assertSame(['max' => 5, 'protocols' => ['http', 'https'], 'strict' => false, 'referer' => false, 'track_redirects' => false], $allowRedirects);
         $this->assertSame(['false'], $headers['X-Foo']);
         $this->assertSame(['true'], $headers['X-Bar']);
+    }
+
+    public function testItCanCreatePendingRequest()
+    {
+        $factory = new Factory();
+
+        $this->assertInstanceOf(PendingRequest::class, $factory->createPendingRequest());
     }
 }
 

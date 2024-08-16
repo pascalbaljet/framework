@@ -9,7 +9,7 @@ on:
 
 jobs:
   mysql_57:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     services:
       mysql:
@@ -55,7 +55,7 @@ jobs:
           DB_COLLATION: utf8mb4_unicode_ci
 
   mysql_8:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     services:
       mysql:
@@ -100,17 +100,17 @@ jobs:
           DB_CONNECTION: mysql
 
   mariadb:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     services:
-      mysql:
+      mariadb:
         image: mariadb:10
         env:
-          MYSQL_ALLOW_EMPTY_PASSWORD: yes
-          MYSQL_DATABASE: laravel
+          MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: yes
+          MARIADB_DATABASE: laravel
         ports:
           - 3306:3306
-        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+        options: --health-cmd="healthcheck.sh --connect --innodb_initialized" --health-interval=10s --health-timeout=5s --health-retries=3
 
     strategy:
       fail-fast: true
@@ -145,7 +145,7 @@ jobs:
           DB_CONNECTION: mariadb
 
   pgsql:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     services:
       postgresql:

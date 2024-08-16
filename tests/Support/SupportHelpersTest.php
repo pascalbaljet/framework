@@ -5,6 +5,7 @@ namespace Illuminate\Tests\Support;
 use ArrayAccess;
 use ArrayIterator;
 use Countable;
+use Error;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Env;
 use Illuminate\Support\Optional;
@@ -62,11 +63,14 @@ class SupportHelpersTest extends TestCase
         $this->assertTrue(blank(null));
         $this->assertTrue(blank(''));
         $this->assertTrue(blank('  '));
+        $this->assertTrue(blank(new Stringable('')));
+        $this->assertTrue(blank(new Stringable('  ')));
         $this->assertFalse(blank(10));
         $this->assertFalse(blank(true));
         $this->assertFalse(blank(false));
         $this->assertFalse(blank(0));
         $this->assertFalse(blank(0.0));
+        $this->assertFalse(blank(new Stringable(' FooBar ')));
 
         $object = new SupportTestCountable();
         $this->assertTrue(blank($object));
@@ -102,11 +106,14 @@ class SupportHelpersTest extends TestCase
         $this->assertFalse(filled(null));
         $this->assertFalse(filled(''));
         $this->assertFalse(filled('  '));
+        $this->assertFalse(filled(new Stringable('')));
+        $this->assertFalse(filled(new Stringable('  ')));
         $this->assertTrue(filled(10));
         $this->assertTrue(filled(true));
         $this->assertTrue(filled(false));
         $this->assertTrue(filled(0));
         $this->assertTrue(filled(0.0));
+        $this->assertTrue(filled(new Stringable(' FooBar ')));
 
         $object = new SupportTestCountable();
         $this->assertFalse(filled($object));
@@ -1006,6 +1013,29 @@ class SupportHelpersTest extends TestCase
             Sleep::usleep(50_000),
             Sleep::usleep(100_000),
             Sleep::usleep(200_000),
+        ]);
+    }
+
+    public function testRetryWithAThrowableBase()
+    {
+        Sleep::fake();
+
+        $attempts = retry(2, function ($attempts) {
+            if ($attempts > 1) {
+                return $attempts;
+            }
+
+            throw new Error('This is an error');
+        }, 100);
+
+        // Make sure we made two attempts
+        $this->assertEquals(2, $attempts);
+
+        // Make sure we waited 100ms for the first attempt
+        Sleep::assertSleptTimes(1);
+
+        Sleep::assertSequence([
+            Sleep::usleep(100_000),
         ]);
     }
 

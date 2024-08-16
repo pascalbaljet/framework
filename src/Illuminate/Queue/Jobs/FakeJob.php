@@ -14,6 +14,13 @@ class FakeJob extends Job
     public $releaseDelay;
 
     /**
+     * The number of attempts made to process the job.
+     *
+     * @var int
+     */
+    public $attempts = 1;
+
+    /**
      * The exception the job failed with.
      *
      * @var \Throwable
@@ -53,6 +60,16 @@ class FakeJob extends Job
     }
 
     /**
+     * Get the number of times the job has been attempted.
+     *
+     * @return int
+     */
+    public function attempts()
+    {
+        return $this->attempts;
+    }
+
+    /**
      * Delete the job from the queue.
      *
      * @return void
@@ -65,7 +82,7 @@ class FakeJob extends Job
     /**
      * Delete the job, call the "failed" method, and raise the failed job event.
      *
-     * @param  \Throwable|null  $e
+     * @param  \Throwable|null  $exception
      * @return void
      */
     public function fail($exception = null)
