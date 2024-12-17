@@ -3,15 +3,15 @@
 namespace Illuminate\Tests\Integration\Database\Sqlite;
 
 use Illuminate\Tests\Integration\Database\DatabaseTestCase;
+use Orchestra\Testbench\Attributes\RequiresDatabase;
 use RuntimeException;
 
+#[RequiresDatabase('sqlite')]
 class EscapeTest extends DatabaseTestCase
 {
-    protected function getEnvironmentSetUp($app)
+    protected function defineEnvironment($app)
     {
-        if (getenv('DB_CONNECTION') !== 'testing') {
-            $this->markTestSkipped('Test requires a Sqlite connection.');
-        }
+        parent::defineEnvironment($app);
 
         $app['config']->set('database.default', 'conn1');
 

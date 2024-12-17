@@ -8,6 +8,16 @@ use PHPUnit\Framework\TestCase;
 
 class SupportNumberTest extends TestCase
 {
+    public function testDefaultLocale()
+    {
+        $this->assertSame('en', Number::defaultLocale());
+    }
+
+    public function testDefaultCurrency()
+    {
+        $this->assertSame('USD', Number::defaultCurrency());
+    }
+
     #[RequiresPhpExtension('intl')]
     public function testFormat()
     {
@@ -94,6 +104,14 @@ class SupportNumberTest extends TestCase
         $this->assertSame('1st', Number::ordinal(1));
         $this->assertSame('2nd', Number::ordinal(2));
         $this->assertSame('3rd', Number::ordinal(3));
+    }
+
+    #[RequiresPhpExtension('intl')]
+    public function testSpellOrdinal()
+    {
+        $this->assertSame('first', Number::spellOrdinal(1));
+        $this->assertSame('second', Number::spellOrdinal(2));
+        $this->assertSame('third', Number::spellOrdinal(3));
     }
 
     #[RequiresPhpExtension('intl')]
@@ -292,5 +310,16 @@ class SupportNumberTest extends TestCase
         $this->assertSame([[1, 10], [11, 20], [21, 25]], Number::pairs(25, 10));
         $this->assertSame([[0, 10], [10, 20], [20, 25]], Number::pairs(25, 10, 0));
         $this->assertSame([[0, 2.5], [2.5, 5.0], [5.0, 7.5], [7.5, 10.0]], Number::pairs(10, 2.5, 0));
+    }
+
+    public function testTrim()
+    {
+        $this->assertSame(12, Number::trim(12));
+        $this->assertSame(120, Number::trim(120));
+        $this->assertSame(12, Number::trim(12.0));
+        $this->assertSame(12.3, Number::trim(12.3));
+        $this->assertSame(12.3, Number::trim(12.30));
+        $this->assertSame(12.3456789, Number::trim(12.3456789));
+        $this->assertSame(12.3456789, Number::trim(12.34567890000));
     }
 }

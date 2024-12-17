@@ -15,6 +15,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\ConnectionResolverInterface as Resolver;
+use Illuminate\Database\Eloquent\Attributes\CollectedBy;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\ArrayObject;
@@ -42,7 +43,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\InteractsWithTime;
-use Illuminate\Support\Str;
 use Illuminate\Support\Stringable;
 use InvalidArgumentException;
 use LogicException;
@@ -254,10 +254,10 @@ class DatabaseEloquentModelTest extends TestCase
         $this->assertInstanceOf(Stringable::class, $model->asStringableAttribute);
         $this->assertFalse($model->isDirty('asStringableAttribute'));
 
-        $model->asStringableAttribute = Str::of('foo bar');
+        $model->asStringableAttribute = new Stringable('foo bar');
         $this->assertFalse($model->isDirty('asStringableAttribute'));
 
-        $model->asStringableAttribute = Str::of('foo baz');
+        $model->asStringableAttribute = new Stringable('foo baz');
         $this->assertTrue($model->isDirty('asStringableAttribute'));
     }
 
@@ -1156,6 +1156,28 @@ class DatabaseEloquentModelTest extends TestCase
         $this->assertEquals([2, 3], $model->relationMany->pluck('id')->all());
     }
 
+    public function testPushCircularRelations()
+    {
+        $parent = new EloquentModelWithRecursiveRelationshipsStub(['id' => 1, 'parent_id' => null]);
+        $lastId = $parent->id;
+        $parent->setRelation('self', $parent);
+
+        $children = new Collection();
+        for ($count = 0; $count < 2; $count++) {
+            $child = new EloquentModelWithRecursiveRelationshipsStub(['id' => ++$lastId, 'parent_id' => $parent->id]);
+            $child->setRelation('parent', $parent);
+            $child->setRelation('self', $child);
+            $children->push($child);
+        }
+        $parent->setRelation('children', $children);
+
+        try {
+            $this->assertTrue($parent->push());
+        } catch (\RuntimeException $e) {
+            $this->fail($e->getMessage());
+        }
+    }
+
     public function testNewQueryReturnsEloquentQueryBuilder()
     {
         $conn = m::mock(Connection::class);
@@ -1229,6 +1251,79 @@ class DatabaseEloquentModelTest extends TestCase
         $model->setAppends(['appendable']);
         $array = $model->toArray();
         $this->assertSame('appended', $array['appendable']);
+    }
+
+    public function testToArrayWithCircularRelations()
+    {
+        $parent = new EloquentModelWithRecursiveRelationshipsStub(['id' => 1, 'parent_id' => null]);
+        $lastId = $parent->id;
+        $parent->setRelation('self', $parent);
+
+        $children = new Collection();
+        for ($count = 0; $count < 2; $count++) {
+            $child = new EloquentModelWithRecursiveRelationshipsStub(['id' => ++$lastId, 'parent_id' => $parent->id]);
+            $child->setRelation('parent', $parent);
+            $child->setRelation('self', $child);
+            $children->push($child);
+        }
+        $parent->setRelation('children', $children);
+
+        try {
+            $this->assertSame(
+                [
+                    'id' => 1,
+                    'parent_id' => null,
+                    'self' => ['id' => 1, 'parent_id' => null],
+                    'children' => [
+                        [
+                            'id' => 2,
+                            'parent_id' => 1,
+                            'parent' => ['id' => 1, 'parent_id' => null],
+                            'self' => ['id' => 2, 'parent_id' => 1],
+                        ],
+                        [
+                            'id' => 3,
+                            'parent_id' => 1,
+                            'parent' => ['id' => 1, 'parent_id' => null],
+                            'self' => ['id' => 3, 'parent_id' => 1],
+                        ],
+                    ],
+                ],
+                $parent->toArray()
+            );
+        } catch (\RuntimeException $e) {
+            $this->fail($e->getMessage());
+        }
+    }
+
+    public function testGetQueueableRelationsWithCircularRelations()
+    {
+        $parent = new EloquentModelWithRecursiveRelationshipsStub(['id' => 1, 'parent_id' => null]);
+        $lastId = $parent->id;
+        $parent->setRelation('self', $parent);
+
+        $children = new Collection();
+        for ($count = 0; $count < 2; $count++) {
+            $child = new EloquentModelWithRecursiveRelationshipsStub(['id' => ++$lastId, 'parent_id' => $parent->id]);
+            $child->setRelation('parent', $parent);
+            $child->setRelation('self', $child);
+            $children->push($child);
+        }
+        $parent->setRelation('children', $children);
+
+        try {
+            $this->assertSame(
+                [
+                    'self',
+                    'children',
+                    'children.parent',
+                    'children.self',
+                ],
+                $parent->getQueueableRelations()
+            );
+        } catch (\RuntimeException $e) {
+            $this->fail($e->getMessage());
+        }
     }
 
     public function testVisibleCreatesArrayWhitelist()
@@ -2008,6 +2103,20 @@ class DatabaseEloquentModelTest extends TestCase
         $events->shouldReceive('listen')->once()->with('eloquent.saved: Illuminate\Tests\Database\EloquentModelWithObserveAttributeUsingArrayStub', EloquentTestObserverStub::class.'@saved');
         $events->shouldReceive('forget');
         EloquentModelWithObserveAttributeUsingArrayStub::flushEventListeners();
+    }
+
+    public function testModelObserversCanBeAttachedToModelsThroughAttributesOnParentClasses()
+    {
+        EloquentModelWithObserveAttributeGrandchildStub::setEventDispatcher($events = m::mock(Dispatcher::class));
+        $events->shouldReceive('dispatch');
+        $events->shouldReceive('listen')->once()->with('eloquent.creating: Illuminate\Tests\Database\EloquentModelWithObserveAttributeGrandchildStub', EloquentTestObserverStub::class.'@creating');
+        $events->shouldReceive('listen')->once()->with('eloquent.saved: Illuminate\Tests\Database\EloquentModelWithObserveAttributeGrandchildStub', EloquentTestObserverStub::class.'@saved');
+        $events->shouldReceive('listen')->once()->with('eloquent.creating: Illuminate\Tests\Database\EloquentModelWithObserveAttributeGrandchildStub', EloquentTestAnotherObserverStub::class.'@creating');
+        $events->shouldReceive('listen')->once()->with('eloquent.saved: Illuminate\Tests\Database\EloquentModelWithObserveAttributeGrandchildStub', EloquentTestAnotherObserverStub::class.'@saved');
+        $events->shouldReceive('listen')->once()->with('eloquent.creating: Illuminate\Tests\Database\EloquentModelWithObserveAttributeGrandchildStub', EloquentTestThirdObserverStub::class.'@creating');
+        $events->shouldReceive('listen')->once()->with('eloquent.saved: Illuminate\Tests\Database\EloquentModelWithObserveAttributeGrandchildStub', EloquentTestThirdObserverStub::class.'@saved');
+        $events->shouldReceive('forget');
+        EloquentModelWithObserveAttributeGrandchildStub::flushEventListeners();
     }
 
     public function testThrowExceptionOnAttachingNotExistsModelObserverWithString()
@@ -3037,6 +3146,51 @@ class DatabaseEloquentModelTest extends TestCase
         $this->assertFalse($user->hasAttribute('nonexistent'));
         $this->assertFalse($user->hasAttribute('belongsToStub'));
     }
+
+    public function testModelToJsonSucceedsWithPriorErrors(): void
+    {
+        $user = new EloquentModelStub(['name' => 'Mateus']);
+
+        // Simulate a JSON error
+        json_decode('{');
+        $this->assertTrue(json_last_error() !== JSON_ERROR_NONE);
+
+        $this->assertSame('{"name":"Mateus"}', $user->toJson(JSON_THROW_ON_ERROR));
+    }
+
+    public function testFillableWithMutators()
+    {
+        $model = new EloquentModelWithMutators;
+        $model->fillable(['full_name', 'full_address']);
+        $model->fill(['id' => 1, 'full_name' => 'John Doe', 'full_address' => '123 Main Street, Anytown']);
+
+        $this->assertNull($model->id);
+        $this->assertSame('John', $model->first_name);
+        $this->assertSame('Doe', $model->last_name);
+        $this->assertSame('123 Main Street', $model->address_line_one);
+        $this->assertSame('Anytown', $model->address_line_two);
+    }
+
+    public function testGuardedWithMutators()
+    {
+        $model = new EloquentModelWithMutators;
+        $model->guard(['id']);
+        $model->fill(['id' => 1, 'full_name' => 'John Doe', 'full_address' => '123 Main Street, Anytown']);
+
+        $this->assertNull($model->id);
+        $this->assertSame('John', $model->first_name);
+        $this->assertSame('Doe', $model->last_name);
+        $this->assertSame('123 Main Street', $model->address_line_one);
+        $this->assertSame('Anytown', $model->address_line_two);
+    }
+
+    public function testCollectedByAttribute()
+    {
+        $model = new EloquentModelWithCollectedByAttribute;
+        $collection = $model->newCollection([$model]);
+
+        $this->assertInstanceOf(CustomEloquentCollection::class, $collection);
+    }
 }
 
 class EloquentTestObserverStub
@@ -3053,6 +3207,19 @@ class EloquentTestObserverStub
 }
 
 class EloquentTestAnotherObserverStub
+{
+    public function creating()
+    {
+        //
+    }
+
+    public function saved()
+    {
+        //
+    }
+}
+
+class EloquentTestThirdObserverStub
 {
     public function creating()
     {
@@ -3558,6 +3725,24 @@ class EloquentModelWithObserveAttributeUsingArrayStub extends EloquentModelStub
     //
 }
 
+#[ObservedBy([EloquentTestObserverStub::class])]
+class EloquentModelWithObserveAttributeGrandparentStub extends EloquentModelStub
+{
+    //
+}
+
+#[ObservedBy([EloquentTestAnotherObserverStub::class])]
+class EloquentModelWithObserveAttributeParentStub extends EloquentModelWithObserveAttributeGrandparentStub
+{
+    //
+}
+
+#[ObservedBy([EloquentTestThirdObserverStub::class])]
+class EloquentModelWithObserveAttributeGrandchildStub extends EloquentModelWithObserveAttributeParentStub
+{
+    //
+}
+
 class EloquentModelSavingEventStub
 {
     //
@@ -3671,4 +3856,137 @@ class Address implements Castable
             }
         };
     }
+}
+
+class EloquentModelWithRecursiveRelationshipsStub extends Model
+{
+    public $fillable = ['id', 'parent_id'];
+
+    protected static \WeakMap $recursionDetectionCache;
+
+    public function getQueueableRelations()
+    {
+        try {
+            $this->stepIn();
+
+            return parent::getQueueableRelations();
+        } finally {
+            $this->stepOut();
+        }
+    }
+
+    public function push()
+    {
+        try {
+            $this->stepIn();
+
+            return parent::push();
+        } finally {
+            $this->stepOut();
+        }
+    }
+
+    public function save(array $options = [])
+    {
+        return true;
+    }
+
+    public function relationsToArray()
+    {
+        try {
+            $this->stepIn();
+
+            return parent::relationsToArray();
+        } finally {
+            $this->stepOut();
+        }
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(static::class, 'parent_id');
+    }
+
+    public function children(): HasMany
+    {
+        return $this->hasMany(static::class, 'parent_id');
+    }
+
+    public function self(): BelongsTo
+    {
+        return $this->belongsTo(static::class, 'id');
+    }
+
+    protected static function getRecursionDetectionCache()
+    {
+        return static::$recursionDetectionCache ??= new \WeakMap;
+    }
+
+    protected function getRecursionDepth(): int
+    {
+        $cache = static::getRecursionDetectionCache();
+
+        return $cache->offsetExists($this) ? $cache->offsetGet($this) : 0;
+    }
+
+    protected function stepIn(): void
+    {
+        $depth = $this->getRecursionDepth();
+
+        if ($depth > 1) {
+            throw new \RuntimeException('Recursion detected');
+        }
+        static::getRecursionDetectionCache()->offsetSet($this, $depth + 1);
+    }
+
+    protected function stepOut(): void
+    {
+        $cache = static::getRecursionDetectionCache();
+        if ($depth = $this->getRecursionDepth()) {
+            $cache->offsetSet($this, $depth - 1);
+        } else {
+            $cache->offsetUnset($this);
+        }
+    }
+}
+
+class EloquentModelWithMutators extends Model
+{
+    public $attributes = [
+        'first_name' => null,
+        'last_name' => null,
+        'address_line_one' => null,
+        'address_line_two' => null,
+    ];
+
+    protected function fullName(): Attribute
+    {
+        return Attribute::make(
+            set: function (string $fullName) {
+                [$firstName, $lastName] = explode(' ', $fullName);
+
+                return [
+                    'first_name' => $firstName,
+                    'last_name' => $lastName,
+                ];
+            }
+        );
+    }
+
+    public function setFullAddressAttribute($fullAddress)
+    {
+        [$addressLineOne, $addressLineTwo] = explode(', ', $fullAddress);
+
+        $this->attributes['address_line_one'] = $addressLineOne;
+        $this->attributes['address_line_two'] = $addressLineTwo;
+    }
+}
+
+#[CollectedBy(CustomEloquentCollection::class)]
+class EloquentModelWithCollectedByAttribute extends Model
+{
+}
+
+class CustomEloquentCollection extends Collection
+{
 }

@@ -73,10 +73,13 @@ jobs:
           max_attempts: 5
           command: composer update --prefer-stable --prefer-dist --no-interaction --no-progress
 
+      - name: Setup SQLite Database
+        run: php vendor/bin/testbench package:create-sqlite-db
+
       - name: Execute tests
         run: vendor/bin/phpunit tests/Integration/Queue
         env:
-          DB_CONNECTION: testing
+          DB_CONNECTION: sqlite
           QUEUE_CONNECTION: database
 
   redis:
@@ -91,8 +94,10 @@ jobs:
 
     strategy:
       fail-fast: true
+      matrix:
+        client: ['phpredis', 'predis']
 
-    name: Redis Driver
+    name: Redis (${{ matrix.client}}) Driver
 
     steps:
       - name: Checkout code
@@ -119,6 +124,7 @@ jobs:
       - name: Execute tests
         run: vendor/bin/phpunit tests/Integration/Queue
         env:
+          REDIS_CLIENT: ${{ matrix.client }}
           QUEUE_CONNECTION: redis
 
   beanstalkd:

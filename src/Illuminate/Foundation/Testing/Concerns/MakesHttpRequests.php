@@ -2,9 +2,11 @@
 
 namespace Illuminate\Foundation\Testing\Concerns;
 
+use BackedEnum;
 use Illuminate\Contracts\Http\Kernel as HttpKernel;
 use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Testing\LoggedExceptionCollection;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\File\UploadedFile as SymfonyUploadedFile;
@@ -91,6 +93,34 @@ trait MakesHttpRequests
     }
 
     /**
+     * Remove a header from the request.
+     *
+     * @param  string  $name
+     * @return $this
+     */
+    public function withoutHeader(string $name)
+    {
+        unset($this->defaultHeaders[$name]);
+
+        return $this;
+    }
+
+    /**
+     * Remove headers from the request.
+     *
+     * @param  array  $headers
+     * @return $this
+     */
+    public function withoutHeaders(array $headers)
+    {
+        foreach ($headers as $name) {
+            $this->withoutHeader($name);
+        }
+
+        return $this;
+    }
+
+    /**
      * Add an authorization token for the request.
      *
      * @param  string  $token
@@ -121,9 +151,7 @@ trait MakesHttpRequests
      */
     public function withoutToken()
     {
-        unset($this->defaultHeaders['Authorization']);
-
-        return $this;
+        return $this->withoutHeader('Authorization');
     }
 
     /**
@@ -305,11 +333,11 @@ trait MakesHttpRequests
     /**
      * Set the referer header and previous URL session value from a given route in order to simulate a previous request.
      *
-     * @param  string  $name
+     * @param  \BackedEnum|string  $name
      * @param  mixed  $parameters
      * @return $this
      */
-    public function fromRoute(string $name, $parameters = [])
+    public function fromRoute(BackedEnum|string $name, $parameters = [])
     {
         return $this->from($this->app['url']->route($name, $parameters));
     }
@@ -611,7 +639,7 @@ trait MakesHttpRequests
      */
     protected function transformHeadersToServerVars(array $headers)
     {
-        return collect(array_merge($this->defaultHeaders, $headers))->mapWithKeys(function ($value, $name) {
+        return (new Collection(array_merge($this->defaultHeaders, $headers)))->mapWithKeys(function ($value, $name) {
             $name = strtr(strtoupper($name), '-', '_');
 
             return [$this->formatServerHeaderKey($name) => $value];
@@ -671,7 +699,7 @@ trait MakesHttpRequests
             return array_merge($this->defaultCookies, $this->unencryptedCookies);
         }
 
-        return collect($this->defaultCookies)->map(function ($value, $key) {
+        return (new Collection($this->defaultCookies))->map(function ($value, $key) {
             return encrypt(CookieValuePrefix::create($key, app('encrypter')->getKey()).$value, false);
         })->merge($this->unencryptedCookies)->all();
     }

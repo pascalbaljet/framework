@@ -5,7 +5,7 @@ namespace Illuminate\Database\Eloquent\Relations;
 use Closure;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\Concerns\AsPivot;
@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithDictionary;
 use Illuminate\Database\Eloquent\Relations\Concerns\InteractsWithPivotTable;
 use Illuminate\Database\Query\Grammars\MySqlGrammar;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 
@@ -113,14 +114,14 @@ class BelongsToMany extends Relation
     /**
      * The custom pivot table column for the created_at timestamp.
      *
-     * @var string
+     * @var string|null
      */
     protected $pivotCreatedAt;
 
     /**
      * The custom pivot table column for the updated_at timestamp.
      *
-     * @var string
+     * @var string|null
      */
     protected $pivotUpdatedAt;
 
@@ -151,9 +152,16 @@ class BelongsToMany extends Relation
      * @param  string|null  $relationName
      * @return void
      */
-    public function __construct(Builder $query, Model $parent, $table, $foreignPivotKey,
-                                $relatedPivotKey, $parentKey, $relatedKey, $relationName = null)
-    {
+    public function __construct(
+        Builder $query,
+        Model $parent,
+        $table,
+        $foreignPivotKey,
+        $relatedPivotKey,
+        $parentKey,
+        $relatedKey,
+        $relationName = null,
+    ) {
         $this->parentKey = $parentKey;
         $this->relatedKey = $relatedKey;
         $this->relationName = $relationName;
@@ -263,7 +271,7 @@ class BelongsToMany extends Relation
     }
 
     /** @inheritDoc */
-    public function match(array $models, Collection $results, $relation)
+    public function match(array $models, EloquentCollection $results, $relation)
     {
         $dictionary = $this->buildDictionary($results);
 
@@ -289,7 +297,7 @@ class BelongsToMany extends Relation
      * @param  \Illuminate\Database\Eloquent\Collection<int, TRelatedModel>  $results
      * @return array<array<string, TRelatedModel>>
      */
-    protected function buildDictionary(Collection $results)
+    protected function buildDictionary(EloquentCollection $results)
     {
         // First we'll build a dictionary of child models keyed by the foreign key
         // of the relation so that we will easily and quickly match them to the
@@ -737,15 +745,15 @@ class BelongsToMany extends Relation
     /**
      * Find a related model by its primary key or call a callback.
      *
-     * @template TFindOrValue
+     * @template TValue
      *
      * @param  mixed  $id
-     * @param  \Closure|array  $columns
-     * @param  (\Closure(): TFindOrValue)|null  $callback
+     * @param  (\Closure(): TValue)|list<string>|string  $columns
+     * @param  (\Closure(): TValue)|null  $callback
      * @return (
      *     $id is (\Illuminate\Contracts\Support\Arrayable<array-key, mixed>|array<mixed>)
-     *     ? \Illuminate\Database\Eloquent\Collection<int, TRelatedModel>
-     *     : ($callback is null ? TRelatedModel|null : TRelatedModel|TFindOrValue)
+     *     ? \Illuminate\Database\Eloquent\Collection<int, TRelatedModel>|TValue
+     *     : TRelatedModel|TValue
      * )
      */
     public function findOr($id, $columns = ['*'], ?Closure $callback = null)
@@ -818,11 +826,11 @@ class BelongsToMany extends Relation
     /**
      * Execute the query and get the first result or call a callback.
      *
-     * @template TFirstOrValue
+     * @template TValue
      *
-     * @param  \Closure|array  $columns
-     * @param  (\Closure(): TFirstOrValue)|null  $callback
-     * @return ($callback is null ? TRelatedModel|null : TRelatedModel|TFirstOrValue)
+     * @param  (\Closure(): TValue)|list<string>  $columns
+     * @param  (\Closure(): TValue)|null  $callback
+     * @return TRelatedModel|TValue
      */
     public function firstOr($columns = ['*'], ?Closure $callback = null)
     {
@@ -901,7 +909,7 @@ class BelongsToMany extends Relation
     {
         $defaults = [$this->foreignPivotKey, $this->relatedPivotKey];
 
-        return collect(array_merge($defaults, $this->pivotColumns))->map(function ($column) {
+        return (new BaseCollection(array_merge($defaults, $this->pivotColumns)))->map(function ($column) {
             return $this->qualifyPivotColumn($column).' as pivot_'.$column;
         })->unique()->all();
     }
@@ -1478,7 +1486,7 @@ class BelongsToMany extends Relation
      */
     public function createdAt()
     {
-        return $this->pivotCreatedAt ?: $this->parent->getCreatedAtColumn();
+        return $this->pivotCreatedAt ?? $this->parent->getCreatedAtColumn() ?? Model::CREATED_AT;
     }
 
     /**
@@ -1488,7 +1496,7 @@ class BelongsToMany extends Relation
      */
     public function updatedAt()
     {
-        return $this->pivotUpdatedAt ?: $this->parent->getUpdatedAtColumn();
+        return $this->pivotUpdatedAt ?? $this->parent->getUpdatedAtColumn() ?? Model::UPDATED_AT;
     }
 
     /**

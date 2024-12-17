@@ -6,14 +6,14 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Tests\Integration\Database\DatabaseTestCase;
+use Orchestra\Testbench\Attributes\RequiresDatabase;
 
+#[RequiresDatabase('sqlite')]
 class DatabaseSqliteSchemaBuilderTest extends DatabaseTestCase
 {
-    protected function getEnvironmentSetUp($app)
+    protected function defineEnvironment($app)
     {
-        if (getenv('DB_CONNECTION') !== 'testing') {
-            $this->markTestSkipped('Test requires a Sqlite connection.');
-        }
+        parent::defineEnvironment($app);
 
         $app['config']->set('database.default', 'conn1');
 
@@ -79,5 +79,18 @@ DROP VIEW IF EXISTS users_view;
 SQL);
 
         $this->assertEmpty(Schema::getViews());
+    }
+
+    public function testGetRawIndex()
+    {
+        Schema::create('table', function (Blueprint $table) {
+            $table->id();
+            $table->timestamps();
+            $table->rawIndex('(strftime("%Y", created_at))', 'table_raw_index');
+        });
+
+        $indexes = Schema::getIndexes('table');
+
+        $this->assertSame([], collect($indexes)->firstWhere('name', 'table_raw_index')['columns']);
     }
 }

@@ -17,6 +17,7 @@ use Illuminate\Database\RecordsNotFoundException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\Str;
 use Illuminate\Support\Traits\ForwardsCalls;
 use ReflectionClass;
@@ -120,6 +121,7 @@ class Builder implements BuilderContract
         'insertorignoreusing',
         'max',
         'min',
+        'numericaggregate',
         'raw',
         'rawvalue',
         'sum',
@@ -530,15 +532,15 @@ class Builder implements BuilderContract
     /**
      * Find a model by its primary key or call a callback.
      *
-     * @template TFindOrValue
+     * @template TValue
      *
      * @param  mixed  $id
-     * @param  \Closure|array|string  $columns
-     * @param  (\Closure(): TFindOrValue)|null  $callback
+     * @param  (\Closure(): TValue)|list<string>|string  $columns
+     * @param  (\Closure(): TValue)|null  $callback
      * @return (
      *     $id is (\Illuminate\Contracts\Support\Arrayable<array-key, mixed>|array<mixed>)
      *     ? \Illuminate\Database\Eloquent\Collection<int, TModel>
-     *     : ($callback is null ? TModel|null : TModel|TFindOrValue)
+     *     : TModel|TValue
      * )
      */
     public function findOr($id, $columns = ['*'], ?Closure $callback = null)
@@ -640,11 +642,11 @@ class Builder implements BuilderContract
     /**
      * Execute the query and get the first result or call a callback.
      *
-     * @template TFirstOrValue
+     * @template TValue
      *
-     * @param  \Closure|array|string  $columns
-     * @param  (\Closure(): TFirstOrValue)|null  $callback
-     * @return ($callback is null ? TModel|null : TModel|TFirstOrValue)
+     * @param  (\Closure(): TValue)|list<string>  $columns
+     * @param  (\Closure(): TValue)|null  $callback
+     * @return TModel|TValue
      */
     public function firstOr($columns = ['*'], ?Closure $callback = null)
     {
@@ -932,7 +934,7 @@ class Builder implements BuilderContract
      *
      * @param  string|\Illuminate\Contracts\Database\Query\Expression  $column
      * @param  string|null  $key
-     * @return \Illuminate\Support\Collection<int|string, mixed>
+     * @return \Illuminate\Support\Collection<array-key, mixed>
      */
     public function pluck($column, $key = null)
     {
@@ -1056,13 +1058,13 @@ class Builder implements BuilderContract
         };
 
         if ($shouldReverse) {
-            $this->query->orders = collect($this->query->orders)->map($reverseDirection)->toArray();
-            $this->query->unionOrders = collect($this->query->unionOrders)->map($reverseDirection)->toArray();
+            $this->query->orders = (new BaseCollection($this->query->orders))->map($reverseDirection)->toArray();
+            $this->query->unionOrders = (new BaseCollection($this->query->unionOrders))->map($reverseDirection)->toArray();
         }
 
         $orders = ! empty($this->query->unionOrders) ? $this->query->unionOrders : $this->query->orders;
 
-        return collect($orders)
+        return (new BaseCollection($orders))
             ->filter(fn ($order) => Arr::has($order, 'direction'))
             ->values();
     }
@@ -1078,6 +1080,17 @@ class Builder implements BuilderContract
         return tap($this->newModelInstance($attributes), function ($instance) {
             $instance->save();
         });
+    }
+
+    /**
+     * Save a new model and return the instance without raising model events.
+     *
+     * @param  array  $attributes
+     * @return TModel
+     */
+    public function createQuietly(array $attributes = [])
+    {
+        return Model::withoutEvents(fn () => $this->create($attributes));
     }
 
     /**
@@ -1504,7 +1517,7 @@ class Builder implements BuilderContract
      */
     protected function groupWhereSliceForScope(QueryBuilder $query, $whereSlice)
     {
-        $whereBooleans = collect($whereSlice)->pluck('boolean');
+        $whereBooleans = (new BaseCollection($whereSlice))->pluck('boolean');
 
         // Here we'll check if the given subset of where clauses contains any "or"
         // booleans and in this case create a nested where expression. That way
@@ -1537,8 +1550,8 @@ class Builder implements BuilderContract
     /**
      * Set the relationships that should be eager loaded.
      *
-     * @param  string|array  $relations
-     * @param  string|\Closure|null  $callback
+     * @param  array<array-key, array|(\Closure(\Illuminate\Database\Eloquent\Relations\Relation<*,*,*>): mixed)|string>|string  $relations
+     * @param  (\Closure(\Illuminate\Database\Eloquent\Relations\Relation<*,*,*>): mixed)|string|null  $callback
      * @return $this
      */
     public function with($relations, $callback = null)
@@ -1572,7 +1585,7 @@ class Builder implements BuilderContract
     /**
      * Set the relationships that should be eager loaded while removing any previously added eager loading specifications.
      *
-     * @param  mixed  $relations
+     * @param  array<array-key, array|(\Closure(\Illuminate\Database\Eloquent\Relations\Relation<*,*,*>): mixed)|string>|string  $relations
      * @return $this
      */
     public function withOnly($relations)
@@ -1790,8 +1803,8 @@ class Builder implements BuilderContract
     protected function getUnionBuilders()
     {
         return isset($this->query->unions)
-            ? collect($this->query->unions)->pluck('query')
-            : collect();
+            ? (new BaseCollection($this->query->unions))->pluck('query')
+            : new BaseCollection;
     }
 
     /**

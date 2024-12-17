@@ -2,6 +2,7 @@
 
 use Illuminate\Contracts\Support\DeferringDisplayableValue;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Env;
 use Illuminate\Support\Fluent;
@@ -11,7 +12,7 @@ use Illuminate\Support\Onceable;
 use Illuminate\Support\Optional;
 use Illuminate\Support\Sleep;
 use Illuminate\Support\Str;
-use UnexpectedValueException;
+use Illuminate\Support\Stringable as SupportStringable;
 
 if (! function_exists('append_config')) {
     /**
@@ -58,6 +59,10 @@ if (! function_exists('blank')) {
         }
 
         if (is_numeric($value) || is_bool($value)) {
+            return false;
+        }
+
+        if ($value instanceof Model) {
             return false;
         }
 
@@ -197,7 +202,7 @@ if (! function_exists('filled')) {
 
 if (! function_exists('fluent')) {
     /**
-     * Create an Fluent object from the given value.
+     * Create a Fluent object from the given value.
      *
      * @param  object|array  $value
      * @return \Illuminate\Support\Fluent
@@ -250,6 +255,19 @@ if (! function_exists('object_get')) {
         }
 
         return $object;
+    }
+}
+
+if (! function_exists('laravel_cloud')) {
+    /**
+     * Determine if the application is running on Laravel Cloud.
+     *
+     * @return bool
+     */
+    function laravel_cloud()
+    {
+        return ($_ENV['LARAVEL_CLOUD'] ?? false) === '1' ||
+               ($_SERVER['LARAVEL_CLOUD'] ?? false) === '1';
     }
 }
 
@@ -385,7 +403,7 @@ if (! function_exists('str')) {
             };
         }
 
-        return Str::of($string);
+        return new SupportStringable($string);
     }
 }
 
@@ -421,7 +439,7 @@ if (! function_exists('throw_if')) {
      * @param  TValue  $condition
      * @param  TException|class-string<TException>|string  $exception
      * @param  mixed  ...$parameters
-     * @return TValue
+     * @return ($condition is true ? never : ($condition is non-empty-mixed ? never : TValue))
      *
      * @throws TException
      */
@@ -449,7 +467,7 @@ if (! function_exists('throw_unless')) {
      * @param  TValue  $condition
      * @param  TException|class-string<TException>|string  $exception
      * @param  mixed  ...$parameters
-     * @return TValue
+     * @return ($condition is false ? never : ($condition is non-empty-mixed ? TValue : never))
      *
      * @throws TException
      */
